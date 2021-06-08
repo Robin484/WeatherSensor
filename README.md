@@ -22,3 +22,12 @@ Byte | Example | Descirption
 4 | 0xFF | **Rainfall LSB** This is the LSB of the rainfall integer
 5 | 255 | **Anemometer rotations** This is the number of rotations the anemometer has bade since the last *INTERVAL_MIN*
 6 | 255 | **Rainfall counter** This is the number of times the rain bucket has tipped since the last data was requested. If the ATtiny has initialised this will be reset each time data is requested
+
+## WeatherSensor
+WeatherSensor is the Arduino sketch for the Wemos. It reads light from a BME280 module, temperature/pressure/humidity from a BH1750 module and wind/rain data from the ATTinyWeather sensor.
+Arduino build settings used for this sketch are
+Setting | Value
+------- | -----
+Board: | LOLIN(WEMOS) D1 mini Pro
+Upload Speed: | 921600
+CPU Frequency: | 80 MHz

@@ -6,14 +6,16 @@
 
 #include "Dataset.h"
 
-#define INTERRUPT_PIN1 PCINT1  // This is PB1 per the schematic
+#define INTERRUPT_PIN1 PCINT1     // This is PB1 per the schematic
 #define INTERRUPT_PIN2 PCINT3
-#define INT_PIN1 PB1           // Interrupt pin of choice: PB1 (same as PCINT1) - Pin 6
-#define INT_PIN2 PB3           //     PB3 (PCINT3) - Pin 2
-#define PCINT_VECTOR PCINT0_vect      // This step is not necessary - it's a naming thing for clarit
+#define INT_PIN1 PB1              // Interrupt pin of choice: PB1 (same as PCINT1) - Pin 6
+#define INT_PIN2 PB3              //     PB3 (PCINT3) - Pin 2
+#define PCINT_VECTOR PCINT0_vect  // This step is not necessary - it's a naming thing for clarit
 
 #define RADIUS 14             // Radius of the anemometer
-#define ROTATION  2 * RADIUS * 3.141
+#define ROTATION  (2 * RADIUS * 3.141)
+
+#define BUCKET_MM 8.8         // mm required to tip the bucket
 
 #define INTERVAL_MIN  5         // 5 minute interval
 #define INTERVAL_MS   INTERVAL_MIN *60000
@@ -23,8 +25,6 @@
 bool initialised;
 volatile unsigned int dbg = 0;
 volatile unsigned int wind = 0;
-volatile unsigned int wind_speed = 0;
-volatile unsigned int rainfall = 0;
 volatile unsigned int rain_since = 0;
 
 volatile Dataset dWind;
@@ -32,8 +32,6 @@ volatile Dataset dWind;
 // ISR increment wind counter and rainfall
 // Every 5 mins work out wind speed
 
-
-volatile bool requested = true;  // This is for debugging and is set to true when a request for data is recieved
 unsigned long timeout;
 
 // the setup function runs once when you press reset or power the board
@@ -53,6 +51,8 @@ void setup() {
   TinyWireS.begin(I2C_ADDRESS);
   TinyWireS.onRequest(request);
 
+  // The ATtiny will work out the windspeed at intervals set by INTERVAL_MS
+  // Set the timeout
   timeout = millis() + INTERVAL_MS;
 }
 
@@ -63,12 +63,13 @@ void loop() {
       timeout = millis() + INTERVAL_MS;
 
       // Calculate the windspeed (convert rotations to distance, multiply to find value per hour)
-      dWind.add((int)(wind * (ROTATION)));
+      dWind.add((int)(wind * ROTATION));
       
       // A reading has been taken, record that we have initialised
       initialised = true;
     }
 
+    // If there's nothing to do sleep, hopefully this will reduce power consumption
     delay(200);
 }
 
@@ -93,18 +94,20 @@ ISR(PCINT_VECTOR)
 // Function called when a request is recieved for data
 void request()
 {
-  TinyWireS.write((byte)initialised);                   // First byte indicates if the sensor has initialised (i.e. has a wind_speed)
-  TinyWireS.write((byte)(initialised ? dWind.average() : 0));  // Windspeed
-  TinyWireS.write((byte)wind);
-  TinyWireS.write((byte)(initialised ? rainfall : 0));    // Rainfall since the last reading
-  TinyWireS.write((byte)rain_since);
-  TinyWireS.write((byte)dbg);
+  unsigned int windspeed = (int)(dWind.average() * (60 / INTERVAL_MS));
+  unsigned int rain = (int)(rain_since * BUCKET_MM);
+  
+  TinyWireS.write((byte)initialised);                   // First byte indicates if the sensor has initialised (i.e. has a windspeed)
+  TinyWireS.write((byte)(initialised ? highByte(windspeed) : 0)); // Windspeed MSB
+  TinyWireS.write((byte)(initialised ? lowByte(windspeed) : 0));  // Windspeed LSB
+  TinyWireS.write((byte)(initialised ? highByte(rain) : 0));      // Rainfall MSB
+  TinyWireS.write((byte)(initialised ? lowByte(rain) : 0));       // Rainfall LSB
+  TinyWireS.write((byte)(wind > MAX_BYTE ? MAX_BYTE : wind));     // Anemometer rotations
+  TinyWireS.write((byte)(rain_since > MAX_BYTE ? MAX_BYTE : rain_since)); // Rain guage tips
 
   // If we have initialised, reset the rainfall
   if (initialised)
   {
     rain_since = 0;
   }
-
-  requested = true;
 }

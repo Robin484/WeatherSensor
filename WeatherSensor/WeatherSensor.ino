@@ -7,6 +7,8 @@ class TinyWeather {
     bool initialised = false;
     unsigned int rain = 0;
     unsigned int wind = 0;
+    byte anemometer = 0;
+    byte rain_bucket = 0;
     
   public:
     TinyWeather() {
@@ -17,15 +19,16 @@ class TinyWeather {
       bool ok = false;
       
       // Request three bytes
-      Wire.requestFrom(TINYWEATHER_ADDR, 3);
+      Wire.requestFrom(TINYWEATHER_ADDR, 7);
 
       // If everthing went ok, we should have recieved 3 bytes
-      if(Wire.available() == 3)
+      if(Wire.available() == 7)
       {
         initialised = Wire.read();
-        rain = (unsigned int)Wire.read();
-        wind = (unsigned int)Wire.read();
-
+        wind = (unsigned int) ((Wire.read() << 8) | Wire.read());
+        rain = (unsigned int) ((Wire.read() << 8) | Wire.read());
+        anemometer = Wire.read();
+        rain_bucket = Wire.read();
         ok = true;
       }
 
@@ -41,7 +44,15 @@ class TinyWeather {
     }
 
     unsigned int getRain() {
-      return wind;
+      return rain;
+    }
+
+    byte getAnemometer() {
+      return anemometer;
+    }
+
+    byte getRainBucket() {
+      return rain_bucket;
     }
 };
 
@@ -63,12 +74,17 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define TEMPERATURE_ADDRESS 0x76
 Adafruit_BME280 bme;
 
-#define RAINWIND_SENSOR 87
+#define INTERVAL_MIN  5         // 5 minute interval
+#define INTERVAL_MS   INTERVAL_MIN *60000
 
 // Light sensor
 #include <hp_BH1750.h>
 #define LIGHT_ADDRESS 0x23
 hp_BH1750 BH1750;
+
+TinyWeather tinyWeather;
+
+unsigned long timeout;
 
 
 // This sketch reads light, temperature, humidty and pressure values every
@@ -97,6 +113,8 @@ void setup() {
 
   if(!ok)
     for(;;);
+
+  timeout = millis() + INTERVAL_MS;
 }
 
 // Output a sensor value
@@ -116,16 +134,7 @@ void displayTiny(char* text)
   display.println(text);
 }
 
-void displayTinyValue(char* text, byte value)
-{
-  int buffer_size = 30;
-  char buffer[buffer_size];
-  snprintf(buffer, buffer_size, "%s %d", text, value);
-  Serial.println(buffer);
-  display.println(buffer);
-}
-
-void displayTinyValues(char* text, byte total, byte since)
+void displayTinyValues(char* text, int total, byte since)
 {
   int buffer_size = 30;
   char buffer[buffer_size];
@@ -154,54 +163,45 @@ void loop() {
   displaySensor("Temp", temp, "C");
   displaySensor("Pres", pres, "hPa");
   displaySensor("Humidity", humd, "%");
+
+  Serial.println();
   
 
   // Update the display
   display.display();
 
-  // Sleep for 10 seconds
-  delay(7*1000);
+  // Sleep for 5 seconds
+  delay(5*1000);
 
-  bool tiny_init = 0;
-  byte tiny_windspeed = 0;
-  byte tiny_wind = 0;
-  byte tiny_rainfall = 0;
-  byte tiny_rainsince = 0;
-  byte tiny_rand = 333;
-  
 
-  // Read from the wind/rain sensor
-  Serial.print("Requesting rain/weather from ");
-  Serial.println(TINYWEATHER_ADDR);
-  Wire.requestFrom(TINYWEATHER_ADDR, 6);
-  int rtn = 0;
-  rtn = Wire.available();
-  Serial.print(" returned ");
-  Serial.print(rtn);
-  Serial.print(" ");
-  if(rtn){
-    tiny_init = (bool)Wire.read();
-    tiny_windspeed = (byte)Wire.read();
-    tiny_wind = (byte)Wire.read();
-    tiny_rainfall = (byte)Wire.read();
-    tiny_rainsince = (byte)Wire.read();
-    tiny_rand = (byte)Wire.read(); 
-    Serial.print(tiny_init ? "TinyWeather initialised (" : "TinyWeather not initialised (");
-    Serial.print(tiny_rand);
-    Serial.println(")");
+  // Read the rain/wind sensor every 5 minutes
+  if(millis() >= timeout) {
+    timeout = millis() + INTERVAL_MS;
+    if(!tinyWeather.read())
+    {
+      // If we failed to read from the TinyWeather sensor, wait a second and retry
+      Serial.println("TinyWeather.read() returned false, retry...");
+      delay(1000);
+      if(!tinyWeather.read())
+      {
+        Serial.println("Error getting data from TinyWeather");
+      }
+    }
   }
 
   // Display TinyWeather data
   display.clearDisplay();
   display.setCursor(0,0);
-  if(tiny_init)
+  if(tinyWeather.isInitialised())
     displayTiny("Initialised");
   else
     displayTiny("Not Initialised");
-  displayTinyValues("Wind", tiny_windspeed, tiny_wind);
-  displayTinyValues("Rain", tiny_rainfall, tiny_rainsince);
-  displayTinyValue("Random", tiny_rand);
+  displayTinyValues("Wind", tinyWeather.getWind(), tinyWeather.getAnemometer());
+  displayTinyValues("Rain", tinyWeather.getRain(), tinyWeather.getRainBucket());
   display.display();
+
+  Serial.println();
+  Serial.println();
 
   // Sleep for 3 seconds
   delay(3 * 1000);

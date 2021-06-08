@@ -8,6 +8,7 @@ class TinyWeather {
     unsigned int rain = 0;
     unsigned int wind = 0;
     byte anemometer = 0;
+    byte wind_average = 0;
     byte rain_bucket = 0;
     
   public:
@@ -19,15 +20,16 @@ class TinyWeather {
       bool ok = false;
       
       // Request three bytes
-      Wire.requestFrom(TINYWEATHER_ADDR, 7);
+      Wire.requestFrom(TINYWEATHER_ADDR, 8);
 
       // If everthing went ok, we should have recieved 3 bytes
-      if(Wire.available() == 7)
+      if(Wire.available() == 8)
       {
         initialised = Wire.read();
         wind = (unsigned int) ((Wire.read() << 8) | Wire.read());
         rain = (unsigned int) ((Wire.read() << 8) | Wire.read());
         anemometer = Wire.read();
+        wind_average = Wire.read();
         rain_bucket = Wire.read();
         ok = true;
       }
@@ -49,6 +51,10 @@ class TinyWeather {
 
     byte getAnemometer() {
       return anemometer;
+    }
+
+    byte getWindAverage() {
+      return wind_average;
     }
 
     byte getRainBucket() {
@@ -197,6 +203,8 @@ void loop() {
   else
     displayTiny("Not Initialised");
   displayTinyValues("Wind", tinyWeather.getWind(), tinyWeather.getAnemometer());
+  Serial.print("Wind average ");
+  Serial.println(tinyWeather.getWindAverage());
   displayTinyValues("Rain", tinyWeather.getRain(), tinyWeather.getRainBucket());
   display.display();
 

@@ -94,7 +94,7 @@ ISR(PCINT_VECTOR)
 // Function called when a request is recieved for data
 void request()
 {
-  unsigned int windspeed = (int)(dWind.average() * (60 / INTERVAL_MS));
+  unsigned int windspeed = (int)(dWind.average() * (60 / INTERVAL_MIN));
   unsigned int rain = (int)(rain_since * BUCKET_MM);
   
   TinyWireS.write((byte)initialised);                   // First byte indicates if the sensor has initialised (i.e. has a windspeed)
@@ -103,6 +103,7 @@ void request()
   TinyWireS.write((byte)(initialised ? highByte(rain) : 0));      // Rainfall MSB
   TinyWireS.write((byte)(initialised ? lowByte(rain) : 0));       // Rainfall LSB
   TinyWireS.write((byte)(wind > MAX_BYTE ? MAX_BYTE : wind));     // Anemometer rotations
+  TinyWireS.write((byte)(dWind.average() > MAX_BYTE ? MAX_BYTE : (byte)dWind.average()));
   TinyWireS.write((byte)(rain_since > MAX_BYTE ? MAX_BYTE : rain_since)); // Rain guage tips
 
   // If we have initialised, reset the rainfall

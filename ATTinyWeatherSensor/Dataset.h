@@ -20,13 +20,9 @@ class Dataset {
     byte _count;
     unsigned int _average;
   public:
-    Dataset() {
-      this->clear();
-    }
-
     void clear();
-    int average();
-    void add(int value);
+    unsigned int average();
+    void add(unsigned int value);
 };
 
 #endif

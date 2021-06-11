@@ -9,17 +9,18 @@
 void Dataset::clear() {
   _count = 0;
   _average = 0;
-  memset(this->_data, 0, sizeof(this->_data));
+  memset(this->_data, 0, DATASET_SIZE);
 }
 
-int Dataset::average() {
+unsigned int Dataset::average() {
   return this->_average;
 }
 
-void Dataset::add(int value) {
+void Dataset::add(unsigned int value) {
   unsigned long sum;
   byte i;
   sum = 0;
+  
   // Store the value in the array
   _data[_count % DATASET_SIZE] = value;
 
@@ -32,17 +33,19 @@ void Dataset::add(int value) {
       break;
   }
 
-  if (_count == 0)
-    _average = (unsigned int)sum;
-  else if(_count < DATASET_SIZE)
-    _average = (unsigned int)sum/_count;
-  else
-    _average = (unsigned int)sum/DATASET_SIZE;
-    
-  
   // Increment the counter
   if(_count == MAX_BYTE)
     _count = DATASET_SIZE;
   else
     _count++;
+
+  if (_count == 0) {
+    _average = (unsigned int)sum;
+  }
+  else if(_count < DATASET_SIZE) {
+    _average = (unsigned int)sum/_count;
+  }
+  else {
+    _average = (unsigned int)sum/DATASET_SIZE;
+  }
 }

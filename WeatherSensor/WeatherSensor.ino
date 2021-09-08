@@ -21,6 +21,9 @@ class TinyWeather {
       // Request three bytes
       Wire.requestFrom(TINYWEATHER_ADDR, 7);
 
+      Serial.print("Wire.available() = ");
+      Serial.println(Wire.available());
+
       // If everthing went ok, we should have recieved 3 bytes
       if(Wire.available() == 7)
       {
@@ -30,6 +33,24 @@ class TinyWeather {
         anemometer = Wire.read();
         rain_bucket = Wire.read();
         ok = true;
+      }
+
+      if(ok)
+      {
+        Serial.print("initialised = ");
+        Serial.println(initialised);
+  
+        Serial.print("wind = ");
+        Serial.println(wind);
+  
+        Serial.print("rain = ");
+        Serial.println(rain);
+  
+        Serial.print("anemometer = ");
+        Serial.println(anemometer);
+  
+        Serial.print("rain_bucket = ");
+        Serial.println(rain_bucket);
       }
 
       return ok;
@@ -56,16 +77,19 @@ class TinyWeather {
     }
 };
 
-// OLED Display
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+// ESP8266
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <ESP8266WiFiMulti.h>
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+ESP8266WiFiMulti WiFiMulti;
 
-#define OLED_RESET     -1
-#define SCREEN_ADDRESS 0x3C
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+const char* ssid = "";
+const char* password = "";
+
+const char* update_endpoint = "http://192.168.4.1:5001/update";
+
+char id[5];
 
 // BME sensor
 #include <Adafruit_Sensor.h>
@@ -74,8 +98,9 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define TEMPERATURE_ADDRESS 0x76
 Adafruit_BME280 bme;
 
-#define INTERVAL_MIN  5         // 5 minute interval
-#define INTERVAL_MS   INTERVAL_MIN *60000
+#define MINS 60000000
+#define MAX_TINYWEATHER_ATTEMPTS 5
+#define MAX_ATTEMPTS 3
 
 // Light sensor
 #include <hp_BH1750.h>
@@ -84,23 +109,16 @@ hp_BH1750 BH1750;
 
 TinyWeather tinyWeather;
 
-unsigned long timeout;
-
-bool output = true;
-
-// This sketch reads light, temperature, humidty and pressure values every
-// 10 seconds, outputing the values to a display
-
 void setup() {
   bool ok = true;
   Serial.begin(9600);
-  Wire.begin();       // Do we need this if others are using it??
+  while(!Serial);
+  Serial.println("Setup called");
 
-  // Initialise the OLED display
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    Serial.println(F("Failed to initialise the OLED display!"));
-    ok = false;
-  }
+  // Use the chip ID to identify the sensor
+  snprintf(id, 5, "%X", ESP.getChipId());
+  Serial.print("Chip ID = ");
+  Serial.println(id);
   
   if(!BH1750.begin(LIGHT_ADDRESS)) {
     Serial.println("Failed to initialise light sensor!");
@@ -114,8 +132,6 @@ void setup() {
 
   if(!ok)
     for(;;);
-
-  timeout = millis() + INTERVAL_MS;
 }
 
 // Output a sensor value
@@ -124,17 +140,13 @@ void displaySensor(char* sensor, float value, char* unit)
   int buffer_size = 30;
   char buffer[buffer_size];
   snprintf(buffer, buffer_size, "%s %.2f %s", sensor, value, unit);
-  if(output)
-    Serial.println(buffer);
-  display.println(buffer);
+  Serial.println(buffer);
 }
 
 // Output TinyWeather functions
 void displayTiny(char* text)
 {
-  if(output)
-    Serial.println(text);
-  display.println(text);
+  Serial.println(text);
 }
 
 void displayTinyValues(char* text, int total, byte since)
@@ -142,9 +154,7 @@ void displayTinyValues(char* text, int total, byte since)
   int buffer_size = 30;
   char buffer[buffer_size];
   snprintf(buffer, buffer_size, "%s %d (%d since)", text, total, since);
-  if(output)
-    Serial.println(buffer);
-  display.println(buffer);
+  Serial.println(buffer);
 }
 
 
@@ -153,73 +163,103 @@ float temp = 0.0;
 float humd = 0.0;
 float pres = 0.0;
 
+#define WEATHER_STATUS_OK 0
+#define WEATHER_STATUS_TINYWEATHER 1
+
 void loop() {
-  // Clear the display
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(WHITE);
-  display.setCursor(0,0);
+  int attempts;
+  bool success = false;
+  int error = WEATHER_STATUS_OK;
+  Serial.println("loop called");
 
-
-  // Read the sensors every 5 minutes
-  if(millis() >= timeout) {
-    timeout = millis() + INTERVAL_MS;
-    // Read from the light sensor
-    BH1750.start();
-    lux=BH1750.getLux();
-
-    // Read from the BME280 sensor
-    temp = bme.readTemperature();
-    humd = bme.readHumidity();
-    pres = bme.readPressure() / 100.0F;
-    
-    if(!tinyWeather.read())
+  for(attempts = 0; attempts < MAX_TINYWEATHER_ATTEMPTS; attempts++)
+  {
+    if(tinyWeather.read())
     {
-      // If we failed to read from the TinyWeather sensor, wait a second and retry
-      Serial.println("TinyWeather.read() returned false, retry...");
-      delay(1000);
-      if(!tinyWeather.read())
-      {
-        Serial.println("Error getting data from TinyWeather");
-      }
+      error = WEATHER_STATUS_OK;
+      break;
     }
-
-    output = true;
+    
+    // If we failed to read from the TinyWeather sensor, wait a second and retry
+    Serial.println("TinyWeather.read() returned false, retry...");
+    error = WEATHER_STATUS_TINYWEATHER;
+    delay(3000);
   }
+  
+  // Read from the light sensor
+  BH1750.start();
+  lux=BH1750.getLux();
+
+  // Read from the BME280 sensor
+  temp = bme.readTemperature();
+  humd = bme.readHumidity();
+  pres = bme.readPressure() / 100.0F;
   
   displaySensor("Light", lux, "Lux");
   displaySensor("Temp", temp, "C");
   displaySensor("Pres", pres, "hPa");
   displaySensor("Humidity", humd, "%");
+  Serial.println();
 
-  if(output)
-    Serial.println();
-
-  // Update the display
-  display.display();
-
-  // Sleep for 5 seconds
-  delay(5*1000);
-    
-  // Display TinyWeather data
-  display.clearDisplay();
-  display.setCursor(0,0);
-  if(tinyWeather.isInitialised())
-    displayTiny("Initialised");
-  else
-    displayTiny("Not Initialised");
+  for(attempts = 0; attempts < MAX_ATTEMPTS; attempts++)
+  {
+    // Conntect to WIFI
+    Serial.print("Connecting");
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+    int count=60;
+    while(WiFi.status() != WL_CONNECTED && count > 0) {
+      delay(1000);
+      Serial.print(".");
+      count--;
+    }
   
-  displayTinyValues("Wind", tinyWeather.getWind(), tinyWeather.getAnemometer());
-  displayTinyValues("Rain", tinyWeather.getRain(), tinyWeather.getRainBucket());
-  display.display();
+    if(WiFi.status()!=WL_CONNECTED) {
+        Serial.println(" Failed to connect!");
+    }
+    else {
+      Serial.print(" Connected, IP address: ");
+      Serial.println(WiFi.localIP());
+  
+      HTTPClient http;
+      int status = 0;
 
-  if(output) {
-    Serial.println();
-    Serial.println();
+      if(http.begin(update_endpoint)){
+        char data[255];
+        sprintf(data, "id=%X&t=%02.02f&h=%02.02f&p=%02.02f&l=%02.02f&w=%d&r=%d&e=%d", id, temp, humd, pres, lux, tinyWeather.getWind(), tinyWeather.getRain(), error);
+        http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+  
+        Serial.print("REQUEST: ");
+        Serial.print(update_endpoint);
+        Serial.print("  ");
+        Serial.println(data);
+        
+        status = http.POST(data);
+  
+        if(status == 200) {
+          Serial.print("RESPONSE: ");
+          String payload = http.getString();
+          Serial.print(status);
+          Serial.print("  ");
+          Serial.println(payload);
+          success = true;
+        }
+        else {
+          Serial.print("ERROR ");
+          Serial.print(status);
+          Serial.print("  ");
+          Serial.println(http.errorToString(status));
+        }
+      }
+
+      http.end();
+
+      if(success)
+        break;
+    }
   }
 
-  // Sleep for 3 seconds
-  delay(3 * 1000);
-
-  output = false;
+  // Stop WIFI and sleep
+  Serial.println("Sleeping...");
+  ESP.deepSleep(30 * MINS);
 }
